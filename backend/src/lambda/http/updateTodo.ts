@@ -1,16 +1,25 @@
 import 'source-map-support/register'
 import { APIGatewayProxyEvent, APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda'
 import { UpdateTodoRequest } from '../../requests/UpdateTodoRequest'
-import * as AWS from "aws-sdk";
 import {HandleError} from "../utils";
 import {Verify} from "../auth/auth0Authorizer";
-const docClient = new AWS.DynamoDB.DocumentClient()
+import {UpdateTodo} from "../../db/dynamo";
+import { createLogger } from '../../utils/logger'
+
+const logger = createLogger('update')
 
 export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+  logger.info('Processing update event', event)
   try {
     const todoId = event.pathParameters.todoId
     const updatedTodo: UpdateTodoRequest = JSON.parse(event.body)
     const userId = Verify(event.headers.Authorization).sub
+
+    logger.info('Updating todo with id', {
+      userId: userId,
+      todoId: todoId
+    })
+
     return await Process(todoId, userId, updatedTodo)
   } catch (e) {
     return HandleError(e)
@@ -18,26 +27,7 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
 }
 
 async function Process(todoId, userId: string, updatedTodo: UpdateTodoRequest): Promise<APIGatewayProxyResult> {
-  let key = {
-    'todoId': todoId,
-    'userId': userId
-  }
-
-  const result = await docClient.update({ // Call parameters
-    TableName: 'udacity_todo',
-    Key: key,
-    UpdateExpression: 'set #name = :name, dueDate = :dueDate, done = :done',
-    ExpressionAttributeNames: {
-      "#name": "name"
-    },
-    ExpressionAttributeValues: {
-      ':name': updatedTodo.name,
-      ':dueDate': updatedTodo.dueDate,
-      ':done': updatedTodo.done
-    },
-    ReturnValues:"UPDATED_NEW"
-  }).promise()
-
+  const result = await UpdateTodo(todoId, userId, updatedTodo)
   return {
     statusCode: 200,
     headers: {

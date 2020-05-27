@@ -2,31 +2,26 @@ import 'source-map-support/register'
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult, APIGatewayProxyHandler } from 'aws-lambda'
 
-import * as AWS from "aws-sdk";
 import {Verify} from "../auth/auth0Authorizer";
 import {HandleError} from "../utils";
-const docClient = new AWS.DynamoDB.DocumentClient()
+import {Delete} from "../../db/dynamo";
+import { createLogger } from '../../utils/logger'
+
+const logger = createLogger('delete')
 
 export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+  logger.info('Processing delete event', event)
   try {
     const todoId = event.pathParameters.todoId
     const userId = (await Verify(event.headers.Authorization)).sub
-    return await Process(userId, todoId)
+    return await Process(todoId, userId)
   } catch(e) {
     return HandleError(e)
   }
 }
 
-async function Process(userId, todoId: string): Promise<APIGatewayProxyResult> {
-  let key = {
-    'todoId': todoId,
-    'userId': userId
-  }
-
-  await docClient.delete({ // Call parameters
-    TableName: 'udacity_todo',
-    Key: key,
-  }).promise()
+async function Process(todoId, userId: string): Promise<APIGatewayProxyResult> {
+  await Delete(todoId, userId)
 
   return {
     statusCode: 200,

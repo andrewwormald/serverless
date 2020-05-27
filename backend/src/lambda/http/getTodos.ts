@@ -1,16 +1,23 @@
 import 'source-map-support/register'
 import { APIGatewayProxyEvent, APIGatewayProxyResult, APIGatewayProxyHandler } from 'aws-lambda'
-import * as AWS from "aws-sdk";
 import { HandleError } from "../utils";
 import {Verify} from "../auth/auth0Authorizer";
+import {CollectForUser} from "../../db/dynamo";
+import {CreateGetSignedUrl} from "../../fileStorage/fileStorage";
+import { createLogger } from '../../utils/logger'
 
-const s3 = new AWS.S3()
-const docClient = new AWS.DynamoDB.DocumentClient()
+const logger = createLogger('collect')
 
 export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+    logger.info('Processing collect all event', event)
     try {
         const auth = event.headers.Authorization
         const userId = Verify(auth).sub
+
+        logger.info('Processing collect all todos for user', {
+            userId: userId
+        })
+
         return await Process(userId)
     } catch (e) {
         return HandleError(e)
@@ -18,32 +25,19 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
 }
 
 async function Process(userId: string): Promise<APIGatewayProxyResult> {
-    const result = await docClient.query({
-        TableName: "udacity_todo",
-        Limit: 50,
-        IndexName: 'udacity_todoId_index',
-        KeyConditionExpression: 'userId = :userId',
-        ExpressionAttributeValues: {
-            ':userId': userId
+    const result = await CollectForUser(userId)
+
+    result.items.map(item => {
+        if (item.attachmentKey) {
+            item['attachmentUrl'] = CreateGetSignedUrl(item.todoId, userId)
         }
-    }).promise()
-
-
-    result.Items.map(item => {
-        const params = {Bucket: 'todo-attachments', Key: item.userId + item.todoId, Expires: 10000};
-        const url = s3.getSignedUrl('getObject', params)
-        item.attachment = url
     })
-
-    const resp = {
-        items: result.Items
-    }
 
     return {
         statusCode: 200,
         headers: {
             'Access-Control-Allow-Origin': '*',
         },
-        body: JSON.stringify(resp)
+        body: JSON.stringify(result)
     }
 }

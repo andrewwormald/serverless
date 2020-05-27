@@ -1,15 +1,23 @@
 import 'source-map-support/register'
 import { APIGatewayProxyEvent, APIGatewayProxyResult, APIGatewayProxyHandler } from 'aws-lambda'
 import {Verify} from "../auth/auth0Authorizer";
-import {HandleError} from "../utils";
-import * as AWS from "aws-sdk";
+import { HandleError } from "../utils";
+import { CreatePutSignedUrl } from "../../fileStorage/fileStorage";
+import { createLogger } from '../../utils/logger'
 
-const s3 = new AWS.S3()
+const logger = createLogger('generateURL')
+
 
 export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+  logger.info('Processing signed url request event', event)
   try {
     const todoId = event.pathParameters.todoId
     const userId = Verify(event.headers.Authorization).sub
+
+    logger.info('Creating signed url for user', {
+      userId: userId
+    })
+
     return await Process(todoId, userId)
   } catch (e) {
     return HandleError(e)
@@ -17,13 +25,7 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
 }
 
 async function Process(todoId, userId: string): Promise<APIGatewayProxyResult> {
-  const params = {Bucket: 'todo-attachments', Key: userId + todoId, Expires: 200};
-  const url = s3.getSignedUrl('putObject', params);
-
-  const resp = {
-    uploadUrl: url
-  }
-
+  const resp = CreatePutSignedUrl(todoId, userId)
   return {
     statusCode: 200,
     headers: {
@@ -32,3 +34,4 @@ async function Process(todoId, userId: string): Promise<APIGatewayProxyResult> {
     body: JSON.stringify(resp)
   }
 }
+
